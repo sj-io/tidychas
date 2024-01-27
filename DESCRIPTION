@@ -21,3 +21,5 @@ Imports:
     tibble,
     tidyr,
     utils
+URL: https://github.com/sj-io/tidychas
+BugReports: https://github.com/sj-io/tidychas/issues
