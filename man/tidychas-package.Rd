@@ -4,12 +4,20 @@
 \name{tidychas-package}
 \alias{tidychas}
 \alias{tidychas-package}
-\title{tidychas: What the Package Does (One Line, Title Case)}
+\title{tidychas: Access Full HUD CHAS Data with R}
 \description{
-What the package does (one paragraph).
+tidychas is an R package for accessing and tidying HUD's CHAS data.
+}
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/sj-io/tidychas}
+  \item Report bugs at \url{https://github.com/sj-io/tidychas/issues}
+}
+
 }
 \author{
-\strong{Maintainer}: First Last \email{first.last@example.com} (\href{https://orcid.org/YOUR-ORCID-ID}{ORCID})
+\strong{Maintainer}: Sarah Johnson \email{sarahviamemphis@gmail.com}
 
 }
 \keyword{internal}
