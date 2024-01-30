@@ -9,5 +9,6 @@
 utils::globalVariables(c(
   "cnty", "concept", "d_num", "description_1", "description_2",
   "description_5", "geoid", "label", "name", "place", "st", "sumlevel",
-  "universe", "value", "variable"
+  "universe", "value", "variable", "year", "var", "unzip_dir", "title",
+  "moe", "est", "description"
 ))

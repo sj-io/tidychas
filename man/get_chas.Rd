@@ -4,7 +4,7 @@
 \alias{get_chas}
 \title{Get HUD CHAS data for a geography.}
 \usage{
-get_chas(geography, year = NULL, state = NULL, county = NULL)
+get_chas(geography, year = NULL, state = NULL, county = NULL, keep_zip = TRUE)
 }
 \arguments{
 \item{geography}{The geography of your data:
@@ -23,6 +23,12 @@ get_chas(geography, year = NULL, state = NULL, county = NULL)
 \item{state}{Character string of two-digit state FIPS code (ex: "47")}
 
 \item{county}{Character string of three-digit county FIPS code (ex: "157")}
+
+\item{keep_zip}{Keep the downloaded zip file for future use?
+\itemize{
+\item \code{TRUE}: Keep the zip file(the default)
+\item \code{FALSE}: Delete the zip file after use.
+}}
 }
 \value{
 A tibble of the requested data.

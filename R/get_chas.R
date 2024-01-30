@@ -11,6 +11,9 @@
 #' @param year Numeric end year of the data (defaults to 2020)
 #' @param state Character string of two-digit state FIPS code (ex: "47")
 #' @param county Character string of three-digit county FIPS code (ex: "157")
+#' @param keep_zip Keep the downloaded zip file for future use?
+#'   * `TRUE`: Keep the zip file(the default)
+#'   * `FALSE`: Delete the zip file after use.
 #'
 #' @import purrr tidyr stringr arrow dplyr httr rappdirs
 #'
@@ -19,7 +22,7 @@
 #' @export
 #' @examples
 #' get_chas("state", state = "47") |> head()
-get_chas <- function(geography, year = NULL, state = NULL, county = NULL) {
+get_chas <- function(geography, year = NULL, state = NULL, county = NULL, keep_zip = TRUE) {
 
   # year for chas data defaults to 2020
   if (is.null(year)) {
@@ -39,33 +42,41 @@ get_chas <- function(geography, year = NULL, state = NULL, county = NULL) {
     message("Created tidychas cache.")
   }
 
-  arrow_dir <- file.path(cache_dir, "arrow")
+  data_dir <- file.path(cache_dir, "data")
+  data_set <- file.path(data_dir, paste0("year=", year), paste0("geography=", fips_geo_num))
+  variables_dir <- file.path(cache_dir, "variables")
+  variables_file <- file.path(variables_dir, paste0(year, ".csv"))
 
-  if (!file.exists(arrow_dir)) {
-    dir.create(arrow_dir, recursive = TRUE)
+  if (!file.exists(data_dir)) {
+    dir.create(data_dir, recursive = TRUE)
+    dir.create(variables_dir, recursive = TRUE)
   }
 
   # check if data already exists in cache
-  existing_data <- list.files(arrow_dir, recursive = TRUE)
+  existing_files <- list.files(data_set, recursive = TRUE, pattern = ".csv")
+  the_schema <- schema(year = int32(), geography = int32(), st = int64(), cnty = int64(), geoid = int64(), name = string(), variable = string(), est = int64(), moe = int64())
 
-  if (length(existing_data) == 0) {
+  if (length(existing_files) == 0) {
     no_data <- TRUE
   } else {
-    existing_data <- open_dataset(arrow_dir, partitioning = c("year", "geography", "st", "cnty")) |>
+    cache_data <- open_dataset(data_dir, format = "csv", convert_options = csv_convert_options(check_utf8 = FALSE), partitioning = c("year", "geography")) |>
       filter(year == {{ year }} & geography == {{ fips_geo_num }})
+    existing_data <- cache_data
 
     if (!is.null(state) & geography != "remainders") {
-      existing_data <- existing_data |> filter(st == as.numeric(state))
+      existing_data <- existing_data |> filter(st == as.numeric({{state}}))
     }
 
     if (!is.null(county) & geography %in% c("tract", "counties by place", "county", "mcd")) {
-      existing_data <- existing_data |> filter(cnty == as.numeric(county))
+      existing_data <- existing_data |> filter(cnty == as.numeric({{county}}))
     }
 
     existing_data <- existing_data |> collect()
 
     if (nrow(existing_data) > 0) {
       no_data <- FALSE
+      message("Retrieving data from cache.")
+      chas_dictionary <- read_csv_arrow(variables_file)
       chas_data <- existing_data
     } else {
       no_data <- TRUE
@@ -85,113 +96,51 @@ get_chas <- function(geography, year = NULL, state = NULL, county = NULL) {
 
     if (!file.exists(unzip_dir)) {
       dir.create(unzip_dir, recursive = TRUE)
-      unzip(zip_file, exdir = unzip_dir, overwrite = TRUE)
     }
 
-    chas_csv_files <- list.files(file.path(unzip_dir), full.names = TRUE, recursive = TRUE, pattern = ".csv")
+    unzip(zip_file, exdir = unzip_dir, overwrite = TRUE)
 
-    if (length(chas_csv_files) == 0) {
-      unzip(zip_file, exdir = unzip_dir, overwrite = TRUE)
-    }
-
-    # data dictionary
-    chas_dictionary_file <- list.files(unzip_dir, pattern = ".xlsx", recursive = TRUE, full.names = TRUE)
-    chas_dictionary <- chas_make_dictionary(chas_dictionary_file)
-
-    # function to convert tables into one dataset
-    chas_read_file <- function(chas_file) {
-      if (str_ends(chas_file, "csv")) {
-      # csv files not converted to parquet
-        df <- read_csv_arrow(chas_file, convert_options = csv_convert_options(check_utf8 = FALSE)) |>
-          rename(year = source, geography = sumlevel)
-
-        if (geography != "remainders") {
-          df <- df |> rename(place = name)
-        }
-
-        df <- df |>
-          mutate(
-            year = gsub(".*thru", "", year),
-            geoid = gsub(".*US", "", geoid),
-            geography = geography
-          )
-
-      } else {
-        # parquet files
-        df <- read_parquet(chas_file, as_data_frame = FALSE)
-        df <- df |> filter(st == as.numeric(state))
-
-        if (!is.null(county) & !(geography %in% c("place", "consolidated cities"))) {
-          df <- df |> filter(cnty == as.numeric(county))
-        }
-
-        df <- df |> collect()
-      }
-
-      # tidy dataset by pivoting variable columns into long format
-      # join with data dictionary
-      df |>
-        pivot_longer(
-          cols = starts_with("T", ignore.case = FALSE),
-          names_pattern = "(T.*)_(.{3})(\\d+)",
-          names_to = c("table", ".value", "variable")
-        ) |>
-        unite(name, c(table, variable), sep = "_", na.rm = TRUE) |>
-        left_join(chas_dictionary, by = "name")
-        # relocate(c(est, moe), .after = last_col())
-    }
-
-    if (geography %in% c("state", "remainders")) {
-      chas_data <- map(chas_csv_files, chas_read_file, .progress = TRUE) |> list_rbind()
-      write_dataset(chas_data, arrow_dir, partitioning = c("year", "geography"))
-
-      if (geography == "state" & !is.null(state))
-        chas_data <- chas_data |> filter(st == as.numeric(state))
-
+    if (!file.exists(variables_file)) {
+      chas_dictionary_file <- list.files(unzip_dir, pattern = ".xlsx", recursive = TRUE, full.names = TRUE)
+      chas_dictionary <- chas_make_dictionary(chas_dictionary_file)
+      write_csv_arrow(chas_dictionary, variables_file)
+      message("Created data dictionary for the given year and caching for future use.")
     } else {
-
-      chas_parquet_files <- list.files(file.path(unzip_dir), full.names = TRUE, recursive = TRUE, pattern = ".parquet")
-      if (length(chas_parquet_files) == 0) {
-
-        # function to convert csv files to parquet
-        chas_csv_to_parquet <- function(chas_csv_file) {
-          chas_parquet_file <- gsub("csv$", "parquet", chas_csv_file)
-
-          df <- open_csv_dataset(chas_csv_file, convert_options = csv_convert_options(check_utf8 = FALSE))
-
-          if (geography == "place") {
-            df <- df |> rename(place_code = place)
-          }
-
-          df <- df |>
-            rename(year = source, geography = sumlevel, place = name) |>
-            mutate(
-              year = gsub(".*thru", "", year),
-              geoid = gsub(".*US", "", geoid),
-              geography = geography
-            ) |>
-            write_parquet(chas_parquet_file)
-
-        }
-
-        # map the function to each csv file
-        purrr::walk(chas_csv_files, chas_csv_to_parquet)
-        chas_parquet_files <- list.files(file.path(unzip_dir), full.names = TRUE, recursive = TRUE, pattern = ".parquet")
-      }
-
-      chas_data <- purrr::map(chas_parquet_files, chas_read_file, .progress = TRUE) |> list_rbind()
-
-      # save data in cache
-      if (geography %in% c("tract", "counties by place", "mcd")) {
-        write_dataset(chas_data, arrow_dir, partitioning = c("year", "geography", "st", "cnty"))
-      } else {
-        write_dataset(chas_data, arrow_dir, partitioning = c("year", "geography", "st"))
-      }
-
+      chas_dictionary <- read_csv_arrow(variables_file)
     }
+
+    chas_csv_files <- list.files(unzip_dir, full.names = TRUE, recursive = TRUE, pattern = ".csv")
+
+    message("Filtering data for specified geography.")
+    walk(chas_csv_files, ~ chas_narrow_csv(., geography = {{geography}}, state = {{state}}, county = {{county}}), .progress = TRUE)
+
+    # tidy each parquet file
+    message("Converting data to tidy format.")
+    chas_data <- map(chas_csv_files, ~ chas_tidy(., chas_dictionary, geography = {{geography}}), .progress = TRUE) |> list_rbind()
+
+    # save data in cache
+    if (length(existing_files) != 0) {
+      save_table <- concat_tables(as_arrow_table(cache_data, schema = the_schema), as_arrow_table(chas_data, schema = the_schema))
+      write_dataset(save_table, data_dir, partitioning = c("year", "geography"), format = "csv", max_rows_per_file = 1e6)
+      message("Data cached for quicker use in future.")
+    } else {
+      write_dataset(chas_data, data_dir, partitioning = c("year", "geography"), format = "csv", max_rows_per_file = 1e6)
+      message("Data cached for quicker use in future.")
+    }
+
+    message("Cleaning up cache.")
+    unlink(unzip_dir, recursive = TRUE, force = TRUE)
+
+    if (keep_zip == FALSE) {
+      file.remove(zip_file)
+    }
+
   }
 
-  chas_data
+  chas_data |>
+    left_join(chas_dictionary, by = "variable") |>
+    relocate(c(est, moe), .after = last_col()) |>
+    relocate(c(year, geography), .before = 1)
 
 }
 
@@ -202,8 +151,8 @@ get_chas <- function(geography, year = NULL, state = NULL, county = NULL) {
 chas_make_dictionary <- function(chas_dictionary_file) {
   chas_raw_dictionary <- readxl::read_excel(chas_dictionary_file, sheet = "All Tables", col_types = "text") |> janitor::clean_names()
   chas_raw_dictionary <- chas_raw_dictionary |>
-    select(name = ends_with("_name"), starts_with("description_")) |>
-    filter(str_starts(name, "T.*_est"))
+    select(variable = ends_with("_name"), starts_with("description_")) |>
+    filter(str_starts(variable, "T.*_est"))
 
   chas_vars_label <- chas_variables$label
   names(chas_vars_label) <- chas_variables$original
@@ -217,27 +166,73 @@ chas_make_dictionary <- function(chas_dictionary_file) {
     mutate(label = "All",
            universe = str_replace_all(universe, chas_universe),
            concept = "Total") |>
-    select(name, universe, label, concept)
+    select(variable, universe, label, concept)
 
   chas_raw_dictionary |>
-    anti_join(empty_chas, by = "name") |>
+    anti_join(empty_chas, by = "variable") |>
     rename(universe = description_1) |>
     pivot_longer(cols = starts_with("description_"), names_to = "d_num") |>
     filter(!(value %in% c("All", NA_character_))) |>
     mutate(
       universe = str_replace_all(universe, chas_universe),
       label = str_replace_all(value, chas_vars_label) |> str_to_sentence() |>
-        str_replace_all(c("\\bhamfi" = "HAMFI",
-                          "\\bvhud" = "VHUD",
-                          "\\brhud" = "RHUD"
+        str_replace_all(c("hamfi" = "HAMFI",
+                          "vhud" = "VHUD",
+                          "rhud" = "RHUD"
         )),
       concept = str_replace_all(value, chas_vars_concept) |> str_to_title()
     ) |>
     select(-value) |>
-    pivot_wider(id_cols = c(name, universe), names_from = d_num, values_from = c(label, concept)) |>
+    pivot_wider(id_cols = c(variable, universe), names_from = d_num, values_from = c(label, concept)) |>
     unite(col = label, starts_with("label_"), sep = "!!", na.rm = TRUE) |>
     unite(col = concept, starts_with("concept_"), sep = " by ", na.rm = TRUE) |>
     bind_rows(empty_chas) |>
-    mutate(name = str_remove(name, "est"))
+    mutate(variable = str_remove(variable, "est"))
 
+}
+
+# convert csv files to parquet
+chas_narrow_csv <- function(chas_csv_file, geography, state = NULL, county = NULL) {
+
+  df <- read_csv_arrow(chas_csv_file, convert_options = csv_convert_options(check_utf8 = FALSE), as_data_frame = FALSE)
+
+  if (!is.null(state)) {
+    df <- df |> filter(st == as.numeric(state))
+  }
+
+  if (!is.null(county) & !(geography %in% c("place", "consolidated cities"))) {
+    df <- df |> filter(cnty == as.numeric(county))
+  }
+
+  df <- df |>
+    rename(year = source, geography = sumlevel) |>
+    mutate(
+      year = gsub(".*thru", "", year),
+      geoid = gsub(".*US", "", geoid)
+    ) |>
+    write_csv_arrow(chas_csv_file)
+}
+
+# combine tables into one
+chas_tidy <- function(chas_file, chas_dictionary, geography) {
+    df <- read_csv_arrow(chas_file, convert_options = csv_convert_options(check_utf8 = FALSE))
+
+  df <- df |>
+    pivot_longer(
+      cols = starts_with("T", ignore.case = FALSE),
+      names_pattern = "(T.*)_(.{3})(\\d+)",
+      names_to = c("table", ".value", "var")
+    ) |>
+    unite(variable, c(table, var), sep = "_", na.rm = TRUE)
+
+  if (geography %in% c("state", "remainder", "place")) {
+    df <- df |> mutate(cnty = NA_integer_)
+  }
+  invisible(col_moe <- df$moe)
+  if (is.null(col_moe)) {
+    df <- df |> mutate(moe = NA_integer_)
+  }
+
+  df |>
+    select(year, geography, st, cnty, geoid, name, variable, est, moe)
 }
