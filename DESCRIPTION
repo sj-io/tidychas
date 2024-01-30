@@ -1,6 +1,6 @@
 Package: tidychas
 Title: Access Full HUD CHAS Data with R
-Version: 0.0.0.9001
+Version: 0.0.0.9002
 Authors@R: 
     person("Sarah", "Johnson", , "sarahviamemphis@gmail.com", role = c("aut", "cre"))
 Description: tidychas is an R package for accessing and tidying HUD's CHAS data.
