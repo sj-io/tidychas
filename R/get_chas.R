@@ -62,7 +62,7 @@ get_chas <- function(geography, year = NULL, state = NULL, county = NULL, keep_z
   if (length(existing_files) == 0) {
     no_data <- TRUE
   } else {
-    cache_data <- open_dataset(data_dir, format = "csv", convert_options = csv_convert_options(check_utf8 = FALSE), partitioning = c("year", "geography")) |>
+    cache_data <- open_dataset(data_dir, format = "csv", convert_options = csv_convert_options(check_utf8 = FALSE, col_types = the_schema), partitioning = c("year", "geography")) |>
       filter(year == {{ year }} & geography == {{ fips_geo_num }})
     existing_data <- cache_data
 
