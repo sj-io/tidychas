@@ -49,6 +49,9 @@ get_chas <- function(geography, year = NULL, state = NULL, county = NULL, keep_z
 
   if (!file.exists(data_dir)) {
     dir.create(data_dir, recursive = TRUE)
+  }
+
+  if (!file.exists(variables_dir)) {
     dir.create(variables_dir, recursive = TRUE)
   }
 
@@ -176,9 +179,9 @@ chas_make_dictionary <- function(chas_dictionary_file) {
     mutate(
       universe = str_replace_all(universe, chas_universe),
       label = str_replace_all(value, chas_vars_label) |> str_to_sentence() |>
-        str_replace_all(c("hamfi" = "HAMFI",
-                          "vhud" = "VHUD",
-                          "rhud" = "RHUD"
+        str_replace_all(c("[hH]amfi" = "HAMFI",
+                          "[vV]hud" = "VHUD",
+                          "[rR]hud" = "RHUD"
         )),
       concept = str_replace_all(value, chas_vars_concept) |> str_to_title()
     ) |>
