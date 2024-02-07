@@ -154,35 +154,35 @@ get_chas <- function(geography, year = NULL, state = NULL, county = NULL, keep_z
 chas_make_dictionary <- function(chas_dictionary_file) {
   chas_raw_dictionary <- readxl::read_excel(chas_dictionary_file, sheet = "All Tables", col_types = "text") |> janitor::clean_names()
   chas_raw_dictionary <- chas_raw_dictionary |>
-    select(variable = ends_with("_name"), starts_with("description_")) |>
-    filter(str_starts(variable, "T.*_est"))
+    select(variable = ends_with("_name"), universe = description_1, starts_with("description_")) |>
+    filter(str_starts(variable, "T.*_est")) |>
+    mutate(
+      universe = str_replace_all(universe, chas_universe),
+      across(starts_with("description_"), ~ str_to_lower(.))
+      )
 
+  # See zzz.R for label changes & concept assignments
   chas_vars_label <- chas_variables$label
   names(chas_vars_label) <- chas_variables$original
 
   chas_vars_concept <- chas_variables$concept
   names(chas_vars_concept) <- chas_variables$original
 
+  # Totals: rows where description 2 thru 5 are entirely "all" or NA
   empty_chas <- chas_raw_dictionary |>
-    rename(universe = description_1) |>
-    filter(if_all(c(description_2:description_5), ~ . %in% c("All", NA_character_))) |>
-    mutate(label = "All",
-           universe = str_replace_all(universe, chas_universe),
-           concept = "Total") |>
+    filter(if_all(c(description_2:description_5), ~ . %in% c("all", NA_character_))) |>
+    mutate(label = "All", concept = "Total") |>
     select(variable, universe, label, concept)
 
   chas_raw_dictionary |>
     anti_join(empty_chas, by = "variable") |>
-    rename(universe = description_1) |>
     pivot_longer(cols = starts_with("description_"), names_to = "d_num") |>
-    filter(!(value %in% c("All", NA_character_))) |>
+    filter(!(value %in% c("all", NA_character_))) |>
     mutate(
-      universe = str_replace_all(universe, chas_universe),
-      label = str_replace_all(value, chas_vars_label) |> str_to_sentence() |>
-        str_replace_all(c("[hH]amfi" = "HAMFI",
-                          "[vV]hud" = "VHUD",
-                          "[rR]hud" = "RHUD"
-        )),
+      label =
+        str_replace_all(value, chas_vars_label) |>
+        str_to_sentence() |>
+        str_replace_all(c("hamfi" = "HAMFI", "vhud" = "VHUD", "rhud" = "RHUD")),
       concept = str_replace_all(value, chas_vars_concept) |> str_to_title()
     ) |>
     select(-value) |>
