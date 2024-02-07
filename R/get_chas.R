@@ -94,7 +94,7 @@ get_chas <- function(geography, year = NULL, state = NULL, county = NULL, keep_z
 
     if (!file.exists(zip_file)) {
       message("Retrieving zip file from HUD website. Small geographies may take a long time to download.")
-      httr::GET(url, write_disk(zip_file, overwrite = TRUE))
+      httr::GET(url, write_disk(zip_file, overwrite = TRUE), progress())
     }
 
     if (!file.exists(unzip_dir)) {
